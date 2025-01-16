@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.1" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\WordSearchLambda.Repository\WordSearchLambda.Repository.csproj" />
   </ItemGroup>
 

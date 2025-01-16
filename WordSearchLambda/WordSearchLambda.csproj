@@ -8,9 +8,12 @@
     <!-- This property makes the build directory similar to a publish directory and helps the AWS .NET Lambda Mock Test Tool find project dependencies. -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <!-- Generate ready to run images during publishing to improve cold start time. -->
+    <RuntimeIdentifier>linux-x64</RuntimeIdentifier>
     <PublishReadyToRun>true</PublishReadyToRun>
+    <Platforms>AnyCPU;ARM32</Platforms>
   </PropertyGroup>
   <ItemGroup>
+    <PackageReference Include="Amazon.Lambda.APIGatewayEvents" Version="2.7.1" />
     <PackageReference Include="Amazon.Lambda.Core" Version="2.5.0" />
     <PackageReference Include="Amazon.Lambda.Serialization.SystemTextJson" Version="2.4.4" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="9.0.0" />

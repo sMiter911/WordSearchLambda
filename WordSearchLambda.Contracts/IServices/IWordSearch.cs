@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Amazon.Lambda.APIGatewayEvents;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -9,6 +10,6 @@ namespace WordSearchLambda.Contracts.IServices
 {
     public interface IWordSearch
     {
-        Task<List<Response>> WordSearch(Request request);
+        Task<Response> WordSearch(string request);
     }
 }

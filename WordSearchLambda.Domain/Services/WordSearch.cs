@@ -1,6 +1,8 @@
-﻿using System;
+﻿using Amazon.Lambda.APIGatewayEvents;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -16,25 +18,37 @@ namespace WordSearchLambda.Domain.Services
             
         }
 
-        async Task<List<Response>> IWordSearch.WordSearch(Request request)
+        async Task<Response> IWordSearch.WordSearch(string request)
         {
-            var uri = $"https://api.dictionaryapi.dev/api/v2/entries/en/{request.DictionaryWord}";
+            Response wordSearchResponse = new Response();
+            var uri = $"https://api.dictionaryapi.dev/api/v2/entries/en/{request}";
             using var httpClient = new HttpClient();
             var response = await httpClient.GetAsync(uri);
 
             if (response.IsSuccessStatusCode)
             {
                 string content = await response.Content.ReadAsStringAsync();
-                var dictionaryEntries = JsonSerializer.Deserialize<List<Response>>(content, new JsonSerializerOptions
+                var dictionaryEntries = JsonSerializer.Deserialize<List<WordSearchResponses>>(content, new JsonSerializerOptions
                 {
                     PropertyNameCaseInsensitive = true // Handle case-insensitive JSON properties
                 });
 
-                return dictionaryEntries;
+               wordSearchResponse = new Response
+                {
+                    WordSearchResponses = dictionaryEntries,
+                    StatusCode = HttpStatusCode.OK
+                };
+
+                return wordSearchResponse;
             }
             else
             {
-                throw new Exception($"Error: {response.StatusCode} - {response.ReasonPhrase}");
+                return new Response
+                {
+                    WordSearchResponses = null,
+                    StatusCode = HttpStatusCode.InternalServerError,
+                    Message= $"Error: {response.StatusCode} - {response.ReasonPhrase}"
+                };
             }
         }
     }

@@ -1,6 +1,7 @@
 using Amazon.Lambda.APIGatewayEvents;
 using Amazon.Lambda.Core;
 using Microsoft.Extensions.DependencyInjection;
+using StackExchange.Redis;
 using System.Net;
 using System.Text.Json;
 using WordSearchLambda.Contracts.IServices;
@@ -11,27 +12,72 @@ using WordSearchLambda.Repository.Models;
 
 namespace WordSearchLambda;
 
+
 public class Function : FunctionBase
 {
+    private static readonly string RedisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING");
+    private static readonly int RequestThreshold = 10; // Max allowed requests
+    private static readonly TimeSpan BlockDuration = TimeSpan.FromMinutes(10); // Block duration
+
+    private static readonly Lazy<ConnectionMultiplexer> RedisConnection = new(() =>
+        ConnectionMultiplexer.Connect(RedisConnectionString));
+
     public async Task<Response> FunctionHandler(APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
     {
-#if !DEBUG
-        context.Logger.LogInformation($"Received request: {JsonSerializer.Serialize(request)}");
-#endif
+        var sourceIp = request.RequestContext.Http.SourceIp;
 
-        var service = _serviceProvider.GetService<IWordSearch>();
-
-        if (service == null)
+        if (string.IsNullOrEmpty(sourceIp))
         {
-            throw new Exception("Service not found");
+            return new Response
+            {
+                WordSearchResponses = null,
+                StatusCode = HttpStatusCode.BadRequest,
+                Message = "Source IP not found in request."
+            };
         }
 
         try
         {
+            // Connect to Redis
+            var redis = RedisConnection.Value.GetDatabase();
+
+            // Increment the request count for the IP
+            var requestCount = await redis.StringIncrementAsync(sourceIp);
+
+            // Set TTL for the key if it's the first request
+            if (requestCount == 1)
+            {
+                await redis.KeyExpireAsync(sourceIp, BlockDuration);
+            }
+
+            // Check if the IP has exceeded the threshold
+            if (requestCount > RequestThreshold)
+            {
+                return new Response
+                {
+                    WordSearchResponses = null,
+                    StatusCode = HttpStatusCode.TooManyRequests,
+                    Message = "Too many requests. Please try again later."
+                };
+            }
+
+            // Log request for debugging
+#if !DEBUG
+            context.Logger.LogInformation($"Received request: {JsonSerializer.Serialize(request)}");
+#endif
+
+            // Process the request as usual
+            var service = _serviceProvider.GetService<IWordSearch>();
+
+            if (service == null)
+            {
+                throw new Exception("Service not found");
+            }
+
             var dictionaryEntries = await service.WordSearch(request.Body);
 
 #if !DEBUG
-        context.Logger.LogInformation($"Output response: {JsonSerializer.Serialize(dictionaryEntries)}");
+            context.Logger.LogInformation($"Output response: {JsonSerializer.Serialize(dictionaryEntries)}");
 #endif
 
             return dictionaryEntries;

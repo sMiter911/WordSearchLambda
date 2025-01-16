@@ -15,12 +15,22 @@ namespace WordSearchLambda;
 
 public class Function : FunctionBase
 {
-    private static readonly string RedisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING");
+    //private static readonly string? RedisConnectionString = Environment.GetEnvironmentVariable("REDIS_CONNECTION_STRING");
     private static readonly int RequestThreshold = 10; // Max allowed requests
     private static readonly TimeSpan BlockDuration = TimeSpan.FromMinutes(10); // Block duration
 
+
     private static readonly Lazy<ConnectionMultiplexer> RedisConnection = new(() =>
-        ConnectionMultiplexer.Connect(RedisConnectionString));
+    {
+        var options = new ConfigurationOptions
+        {
+            EndPoints = { { "redis-14651.c16.us-east-1-2.ec2.redns.redis-cloud.com", 14651 } },
+            User = Environment.GetEnvironmentVariable("REDIS_USER"),
+            Password = Environment.GetEnvironmentVariable("REDIS_PASSWORD")
+        };
+
+        return ConnectionMultiplexer.Connect(options);
+    });
 
     public async Task<Response> FunctionHandler(APIGatewayHttpApiV2ProxyRequest request, ILambdaContext context)
     {
@@ -30,7 +40,7 @@ public class Function : FunctionBase
         {
             return new Response
             {
-                WordSearchResponses = null,
+                WordSearchResponses = new List<WordSearchResponses>(),
                 StatusCode = HttpStatusCode.BadRequest,
                 Message = "Source IP not found in request."
             };
@@ -40,6 +50,16 @@ public class Function : FunctionBase
         {
             // Connect to Redis
             var redis = RedisConnection.Value.GetDatabase();
+
+            // Debugging connection success
+            if (!redis.Multiplexer.IsConnected)
+            {
+                throw new Exception("Failed to connect to Redis.");
+            }
+
+#if !DEBUG
+            context.Logger.LogInformation($"Connection Successful: {redis.IsConnected}");
+#endif
 
             // Increment the request count for the IP
             var requestCount = await redis.StringIncrementAsync(sourceIp);
@@ -53,11 +73,17 @@ public class Function : FunctionBase
             // Check if the IP has exceeded the threshold
             if (requestCount > RequestThreshold)
             {
+                var ttl = await redis.KeyTimeToLiveAsync(sourceIp);
+                var timeRemaining = ttl.HasValue ? ttl.Value.ToString(@"hh\:mm\:ss") : "unknown";
+
+#if !DEBUG
+                context.Logger.LogInformation($"Too many requests: {requestCount}. Time remaining: {timeRemaining}");
+#endif
                 return new Response
                 {
-                    WordSearchResponses = null,
+                    WordSearchResponses = new List<WordSearchResponses>(),
                     StatusCode = HttpStatusCode.TooManyRequests,
-                    Message = "Too many requests. Please try again later."
+                    Message = $"Too many requests {requestCount}/10. Please try again later. Time remaining: {timeRemaining}"
                 };
             }
 
@@ -74,6 +100,7 @@ public class Function : FunctionBase
                 throw new Exception("Service not found");
             }
 
+            // Call the service
             var dictionaryEntries = await service.WordSearch(request.Body);
 
 #if !DEBUG
@@ -87,7 +114,7 @@ public class Function : FunctionBase
             context.Logger.LogError($"Error processing request: {ex.Message}");
             return new Response
             {
-                WordSearchResponses = null,
+                WordSearchResponses = new List<WordSearchResponses>(),
                 StatusCode = HttpStatusCode.BadGateway,
                 Message = ex.Message
             };
